@@ -17,6 +17,7 @@ import math
 import threading
 import time
 from importlib.metadata import version
+from types import SimpleNamespace
 
 from flask import Flask, jsonify, request
 from policyengine_core.enums import EnumArray
@@ -69,6 +70,8 @@ def calculate():
         raw = request.get_data()  # outside the handlers below, so an oversized body stays a 413
         try:
             results = run_batch(parse(raw))
+        except UnknownOverride as error:
+            return jsonify(error="unknown_override", parameter=error.path, identity=IDENTITY), 400
         except ValueError as error:
             return jsonify(error=str(error), identity=IDENTITY), 400
         except Exception as error:  # log the type only: a message can carry household values
@@ -134,10 +137,40 @@ def _check(household, where):
                 elif not isinstance(value, dict):
                     raise ValueError(f"{where}.situation.{plural}: {name} must be {{period: value}}")
     overrides = household.get("overrides", {})
-    if not isinstance(overrides, dict) or not all(isinstance(v, dict) for v in overrides.values()):
+    if not isinstance(overrides, dict):
         raise ValueError(f"{where}.overrides must map parameter paths to {{period: value}}")
-    for path in overrides:
-        BASELINE.parameters.get_child(path)  # ValueError for an unknown path, before a slow rebuild
+    for path, periods in overrides.items():
+        _check_override(path, periods)
+
+
+class UnknownOverride(ValueError):
+    """An overrides entry naming a parameter PolicyEngine does not have, or a period or value
+    it cannot apply."""
+
+    def __init__(self, path):
+        super().__init__(path)
+        self.path = path
+
+
+def _kind(value):
+    return "bool" if isinstance(value, bool) else "number" if isinstance(value, (int, float)) else type(value).__name__
+
+
+def _check_override(path, periods):
+    """Apply one overrides entry to a copy of its parameter with PolicyEngine's own reform code,
+    so a bad entry is a 400 naming it, before the slow rebuild and never silently dropped.
+    Values must also be of a kind the parameter already holds (no null or true for a rate)."""
+    try:
+        parameter = BASELINE.parameters.get_child(path)
+        kinds = {_kind(v.value) for v in parameter.values_list}  # AttributeError for a node
+        if isinstance(periods, dict) and periods and all(_kind(v) in kinds for v in periods.values()):
+            target = parameter.clone()
+            holder = SimpleNamespace(parameters=SimpleNamespace(get_child=lambda _: target))
+            Reform.from_dict({path: periods}, country_id="us").apply(holder)
+            return
+    except Exception:
+        pass
+    raise UnknownOverride(path)
 
 
 def run_batch(households):

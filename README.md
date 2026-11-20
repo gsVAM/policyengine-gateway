@@ -43,7 +43,12 @@ Stateless. It never logs a request or response body: they hold a household's tax
   `filing_status` there too if PolicyEngine must not infer it.
 - `overrides` (optional) is PolicyEngine parameter path → `{period: value}`, applied as a reform
   (`Reform.from_dict`) for that household. Period keys follow PolicyEngine: `"2026-01-01.2026-12-31"`
-  is that year only; a bare `"2026-01-01"` applies from then on.
+  is that year only; a bare `"2026-01-01"` applies from then on. An entry is never silently
+  ignored. Each one is first applied, with PolicyEngine's own reform code, to a copy of its
+  parameter. Every value must also be of a kind that parameter already holds (number, bool, list),
+  so a `null` or `true` for a rate is rejected. A path PolicyEngine does not have, a node rather
+  than a parameter, a period it cannot parse, a value it cannot take, or an empty or non-object
+  `{period: value}` all return `400 {"error": "unknown_override", "parameter": "<path>", "identity": {...}}`.
 
 Response (`200`):
 
@@ -81,6 +86,7 @@ A non-finite computed value is returned as `null`.
 | Status | When | Body |
 | --- | --- | --- |
 | 200 | computed | `{"results": [...], "identity": {...}}` |
+| 400 | an `overrides` entry PolicyEngine does not have or cannot apply | `{"error": "unknown_override", "parameter": "<path>", "identity": {...}}` |
 | 400 | malformed JSON, a non-finite number, a bad field, more than 100 households, or input PolicyEngine rejects | `{"error": "...", "identity": {...}}` |
 | 401 | missing or wrong key | `{"error": "unauthorized"}` |
 | 413 | body over 2 MB | |

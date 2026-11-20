@@ -167,9 +167,28 @@ def without_families():
     without_families(),
     body().replace('"income_tax"', '"no_such_variable"'),
     body().replace('"members": ["you"]', '"members": "you"', 1),
-    body(overrides={"gov.no.such.parameter": {"2026-01-01": 1}}),
 ])
 def test_malformed_body_is_400(client, raw):
     response = client.post("/calculate", data=raw, content_type="application/json", headers=AUTH)
     assert response.status_code == 400
     assert response.get_json()["error"] and response.get_json()["identity"]
+
+
+THRESHOLD = "gov.irs.income.bracket.thresholds.1.SINGLE"
+
+
+@pytest.mark.parametrize("path, periods", [
+    ("gov.no.such.parameter", {"2026-01-01": 1}),  # a path PolicyEngine does not have
+    ("gov.irs.income.bracket", {"2026-01-01": 1}),  # a node, not a parameter
+    (THRESHOLD, {"not-a-period": 1}),
+    (THRESHOLD, {"2026-01-01": "x"}),
+    (THRESHOLD, {"2026-01-01": None}),
+    (THRESHOLD, {"2026-01-01": True}),
+    (THRESHOLD, {}),
+    (THRESHOLD, 20000),
+])
+def test_unknown_override_is_400_naming_it(client, path, periods):
+    valid = {"gov.irs.income.bracket.rates.1": {"2026-01-01.2026-12-31": 0.1}}
+    response = post(client, [household(), household(overrides={**valid, path: periods})])
+    assert response.status_code == 400
+    assert response.get_json() == {"error": "unknown_override", "parameter": path, "identity": app.IDENTITY}
