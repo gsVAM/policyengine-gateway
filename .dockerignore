@@ -1,3 +1,4 @@
 *
-!Caddyfile
-!run.sh
+!requirements.txt
+!app.py
+!gunicorn.conf.py
