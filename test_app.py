@@ -107,6 +107,20 @@ def test_single_filer_2026(client):
     assert all(0 <= b["rate"] < 1 for b in ordinary)
     assert result["capital_gains_brackets"][0] == {"threshold": 0, "rate": 0}
     assert len(result["capital_gains_brackets"]) > 1
+    assert result["niit_threshold"] == 200000
+    assert result["state_income_tax_modeled"] is True  # CA
+
+
+def in_state(state):
+    h = household(id=state)
+    h["situation"]["households"]["h"]["state_name"] = {"2026": state}
+    return h
+
+
+def test_state_income_tax_modeled(client):
+    # TX levies no income tax; PolicyEngine does not model Puerto Rico's.
+    results = post(client, [in_state("CA"), in_state("TX"), in_state("PR")]).get_json()["results"]
+    assert [r["state_income_tax_modeled"] for r in results] == [True, False, False]
 
 
 def test_batch_matches_single_households(client):
@@ -118,11 +132,13 @@ def test_batch_matches_single_households(client):
 
 
 def test_override_changes_schedule_and_matches_policyengine(client):
-    overrides = {"gov.irs.income.bracket.thresholds.1.SINGLE": {"2026-01-01.2026-12-31": 20000}}
+    overrides = {"gov.irs.income.bracket.thresholds.1.SINGLE": {"2026-01-01.2026-12-31": 20000},
+                 "gov.irs.investment.net_investment_income_tax.threshold.SINGLE": {"2026-01-01.2026-12-31": 150000}}
     base, reformed = post(client, [household(), household(id="reformed", overrides=overrides)]).get_json()["results"]
     assert reformed["id"] == "reformed"
     assert reformed["ordinary_brackets"][1]["threshold"] == 20000 != base["ordinary_brackets"][1]["threshold"]
     assert income_tax(reformed) < income_tax(base)
+    assert (reformed["niit_threshold"], base["niit_threshold"]) == (150000, 200000)
     # The cached reformed system gives what PolicyEngine's own reform path gives.
     sim = Simulation(situation=household()["situation"], reform=Reform.from_dict(overrides, country_id="us"))
     assert income_tax(reformed) == float(str(sim.calculate("income_tax", "2026")[0]))

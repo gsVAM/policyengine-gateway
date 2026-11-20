@@ -55,13 +55,28 @@ Response (`200`):
   "situation": {"...": "the request's situation with every null filled in, e.g. income_tax {\"2026\": 3820.0}"},
   "ordinary_brackets": [{"threshold": 0.0, "rate": 0.1}, {"threshold": 12400.0, "rate": 0.12}, "..."],
   "capital_gains_brackets": [{"threshold": 0.0, "rate": 0.0}, {"threshold": 49450.0, "rate": 0.15},
-                             {"threshold": 545500.0, "rate": 0.2}]
+                             {"threshold": 545500.0, "rate": 0.2}],
+  "niit_threshold": 200000.0,
+  "state_income_tax_modeled": true
  }]}
 ```
 
-Bracket schedules are read from PolicyEngine's own parameters (`gov.irs.income.bracket`,
-`gov.irs.capital_gains`) for the year and filing status, after any overrides. Each `threshold` is
-the bracket's lower bound in taxable income. A non-finite computed value is returned as `null`.
+These fields are read from PolicyEngine's own parameters for the household's `tax_year` and
+`filing_status`, after any overrides:
+
+- `ordinary_brackets` and `capital_gains_brackets` come from `gov.irs.income.bracket` and
+  `gov.irs.capital_gains`. Each `threshold` is the bracket's lower bound in taxable income.
+- `niit_threshold` is the net investment income tax MAGI threshold,
+  `gov.irs.investment.net_investment_income_tax.threshold`.
+- `state_income_tax_modeled` is `true` when `gov.states.household.state_income_tax_before_refundable_credits`
+  has a component for the state (prefixed `<state>_`). That year-dated list is what PolicyEngine's
+  `state_income_tax` sums. The state is PolicyEngine's `state_code` for the situation's
+  household(s). It is `false` for a state with no component that year. In policyengine-us 2.140.3
+  that covers states with no broad income tax (AK, FL, NV, SD, TN, TX, WY), where PolicyEngine's
+  zero is correct. It also covers places with an income tax PolicyEngine does not model:
+  Puerto Rico and the other territories.
+
+A non-finite computed value is returned as `null`.
 
 | Status | When | Body |
 | --- | --- | --- |

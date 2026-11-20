@@ -153,7 +153,7 @@ def run_batch(households):
             system = _reformed_system(key) if key != "{}" else None
             sim = Simulation(situation=_merge(households, indices), tax_benefit_system=system)
             parameters = sim.tax_benefit_system.parameters  # after any overrides
-            schedules = {i: _schedules(parameters, households[i]) for i in indices}
+            read = {i: _from_parameters(parameters, households[i]) for i in indices}
         except Exception as error:
             raise ValueError(f"PolicyEngine rejected the input: {error}") from None
         for i in indices:
@@ -164,7 +164,8 @@ def run_batch(households):
                 "tax_year": household["tax_year"],
                 "filing_status": household["filing_status"],
                 "situation": household["situation"],
-                **schedules[i],
+                **read[i],
+                "state_income_tax_modeled": _state_income_tax_modeled(sim, i, household),
             }
     return results
 
@@ -183,12 +184,29 @@ def _reformed_system(overrides_json):
     return _reformed[overrides_json]
 
 
-def _schedules(parameters, household):
+def _from_parameters(parameters, household):
     year, status = household["tax_year"], household["filing_status"]
+    niit = parameters.gov.irs.investment.net_investment_income_tax.threshold.children[status]
     return {
         "ordinary_brackets": _schedule(parameters.gov.irs.income.bracket, year, status),
         "capital_gains_brackets": _schedule(parameters.gov.irs.capital_gains, year, status),
+        "niit_threshold": float(niit(f"{year}-01-01")),
     }
+
+
+def _state_income_tax_modeled(sim, i, household):
+    """True when PolicyEngine models an income tax for the state of each of the situation's
+    households in tax_year: the list of state components that its state_income_tax sums
+    (a year-dated parameter) has one for that state. Every component is prefixed `<state>_`."""
+    year = str(household["tax_year"])
+    parameters = sim.tax_benefit_system.parameters.gov.states.household
+    components = parameters.state_income_tax_before_refundable_credits(f"{year}-01-01")
+    codes = sim.calculate("state_code", year).decode_to_str()
+    population = sim.get_population("households")
+    states = [codes[population.get_index(f"{i}:{h}")] for h in household["situation"]["households"]]
+    return bool(states) and all(
+        any(c.startswith(f"{state.lower()}_") for c in components) for state in states
+    )
 
 
 def _schedule(node, year, status):
